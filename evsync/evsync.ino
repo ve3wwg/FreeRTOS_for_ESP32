@@ -31,7 +31,7 @@ static void led_task(void *arg) {
       EV_ALL,     // All bits required
       timeout);   // Timeout
 
-    if ( rev == EV_ALL ) {
+    if ( (rev & EV_ALL) == EV_ALL ) {
       // Not timed out: blink LED
       digitalWrite(leds[ledx],
         !digitalRead(leds[ledx]));
