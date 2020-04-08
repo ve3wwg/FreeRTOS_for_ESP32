@@ -1,8 +1,8 @@
 // eventgr.ino
 
 // Update with your WIFI credentials
-#define WIFI_SSID     "SSID"
-#define WIFI_PASSWD   "Password"
+#define WIFI_SSID     "MySSID"
+#define WIFI_PASSWD   "MyPassword"
 
 // LED GPIOs:
 #define GPIO_LED1     18
@@ -54,7 +54,7 @@ static void http_server(void *arg) {
   xEventGroupWaitBits(
     hevt,           // Event group
     WIFI_RDY,       // bits to wait for
-    0,              // bits to clear
+    pdFALSE,        // no clear
     pdFALSE,        // wait for all bits
     portMAX_DELAY); // timeout
 
@@ -156,7 +156,7 @@ static void udp_broadcast(void *arg) {
   xEventGroupWaitBits(
     hevt,           // Event Group
     WIFI_RDY,       // bits to wait for
-    0,              // bits to clear
+    pdFALSE,        // no clear
     pdFALSE,        // wait for all bits
     portMAX_DELAY); // timeout
 
@@ -185,7 +185,7 @@ static void udp_broadcast(void *arg) {
     xEventGroupWaitBits(
       hevt,           // handle
       LED_CHG,        // bits to wait for
-      LED_CHG,        // bits to clear
+      pdTRUE,         // clear bits
       pdFALSE,        // wait for all bits
       portMAX_DELAY); // timeout
     char temp[16];
@@ -205,13 +205,19 @@ static void udp_broadcast(void *arg) {
 }
 
 static void init_http() {
+  unsigned count = 0;
 
-  printf("WiFi connecting to SSID %s\n",ssid);
+  printf("WiFi connecting to SSID: %s\n",ssid);
   WiFi.begin(ssid,passwd);
 
   while ( WiFi.status() != WL_CONNECTED ) {
     delay(250);
-    printf(".");
+    if ( ++count < 80 )
+      printf(".");
+    else {
+      printf("\n");
+      count = 0;
+    }
   }
 
   printf("\nWiFi connected as %s\n",
