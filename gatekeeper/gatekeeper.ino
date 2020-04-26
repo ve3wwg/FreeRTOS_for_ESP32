@@ -244,7 +244,6 @@ static short pcf8574_put(uint8_t port,bool value) {
 // corresponding LED.
 
 static void usr_task1(void *argp) {
-  QueueHandle_t replyq;   // Reply queue handle
   struct s_state {
     uint8_t   button;
     uint8_t   led;
