@@ -18,6 +18,8 @@
 #define LED1          2     // P2 on dev0
 #define LED2          3     // P3 on dev0
 
+#define LED3          8     // P0 on dev1
+
 #include <Wire.h>
 
 #if PCF8574A
@@ -241,7 +243,7 @@ static short pcf8574_put(uint8_t port,bool value) {
 // Detect button press, and then activate
 // corresponding LED.
 
-static void usr_task(void *argp) {
+static void usr_task1(void *argp) {
   QueueHandle_t replyq;   // Reply queue handle
   struct s_state {
     uint8_t   button;
@@ -270,6 +272,19 @@ static void usr_task(void *argp) {
   }
 }
 
+static void usr_task2(void *argp) {
+  bool state;
+  short rc;
+
+  for (;;) {
+    delay(500);
+    rc = pcf8574_get(LED3);
+    assert(rc != -1);
+    state = !(rc & 1);
+    rc = pcf8574_put(LED3,state);
+  }
+}
+
 // Initialize Application
 
 void setup() {
@@ -281,11 +296,6 @@ void setup() {
   // tasks execute.
   gatekeeper.grpevt = xEventGroupCreate();
   assert(gatekeeper.grpevt);
-
-#if 0
-  delay(2000);  // Allow USB to connect
-  printf("\ngatekeeper.ino:\n");
-#endif
 
   // Start the gatekeeper task
   rc = xTaskCreatePinnedToCore(
@@ -301,8 +311,20 @@ void setup() {
 
   // Start user task 1
   rc = xTaskCreatePinnedToCore(
-    usr_task,   // Function
-    "usr_task", // Name
+    usr_task1,   // Function
+    "usrtask1", // Name
+    2000,       // Stack size
+    nullptr,    // Argument
+    1,          // Priority
+    nullptr,    // Handle ptr
+    app_cpu     // CPU
+  );
+  assert(rc == pdPASS);
+
+  // Start user task 2
+  rc = xTaskCreatePinnedToCore(
+    usr_task2,  // Function
+    "usrtask2", // Name
     2000,       // Stack size
     nullptr,    // Argument
     1,          // Priority
