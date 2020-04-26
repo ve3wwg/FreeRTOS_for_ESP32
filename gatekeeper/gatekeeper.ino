@@ -281,7 +281,7 @@ static void usr_task2(void *argp) {
     rc = pcf8574_get(LED3);
     assert(rc != -1);
     state = !(rc & 1);
-    rc = pcf8574_put(LED3,state);
+    pcf8574_put(LED3,state);
   }
 }
 
