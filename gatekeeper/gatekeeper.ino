@@ -32,6 +32,11 @@
 
 #define N_DEV         2         // PCF8574 devices
 #define GATEKRDY      0b0001    // Gatekeeper ready
+
+#define IO_RDY        0b0001    // Task notification
+#define IO_ERROR      0b0010    // Task notification
+#define IO_BIT        0b0100    // Task notification
+
 #define STOP          int(1)    // Arduino I2C API
 
 static struct s_gatekeeper {
@@ -58,12 +63,13 @@ static void gatekeeper_task(void *arg) {
   static int i2caddr[N_DEV] = { DEV0, DEV1 };
   int addr;             // Device I2C address
   uint8_t devx, portx;  // Device index, bit index
-  s_ioport *pioport;    // Queue message pointer
+  s_ioport ioport;      // Queue message pointer
   uint8_t data;         // Temp data byte
+  uint32_t notify;      // Task Notification word
   BaseType_t rc;        // Return code
 
   // Create API communication queues
-  gatekeeper.queue = xQueueCreate(8,sizeof(s_ioport*));
+  gatekeeper.queue = xQueueCreate(8,sizeof ioport);
   assert(gatekeeper.queue);
 
   // Start I2C Bus Support:
@@ -84,46 +90,57 @@ static void gatekeeper_task(void *arg) {
   
   // Event loop
   for (;;) {
+    notify = 0;
+
     // Receive command:
-    rc = xQueueReceive(gatekeeper.queue,&pioport,
+    rc = xQueueReceive(gatekeeper.queue,&ioport,
       portMAX_DELAY);
     assert(rc == pdPASS);
 
-    devx = pioport->port / 8;   // device index
-    portx = pioport->port % 8;  // pin index
+    devx = ioport.port / 8;   // device index
+    portx = ioport.port % 8;  // pin index
     assert(devx < N_DEV);
-    addr = i2caddr[devx];       // device address
+    addr = i2caddr[devx];     // device address
 
-    if ( pioport->input ) {
+    if ( ioport.input ) {
       // COMMAND: READ A GPIO BIT:
       Wire.requestFrom(addr,1,STOP);
       rc = Wire.available();
       if ( rc > 0 ) {
-        data = Wire.read();     // Read all bits
-        pioport->error = false; // Successful
-        pioport->value = !!(data & (1 << portx));
+        data = Wire.read();   // Read all bits
+        ioport.error = false; // Successful
+        ioport.value = !!(data & (1 << portx));
       } else {
         // Return GPIO fail:
-        pioport->error = true;
-        pioport->value = false;
+        ioport.error = true;
+        ioport.value = false;
       }
     } else {
       // COMMAND: WRITE A GPIO BIT:
       data = gatekeeper.states[devx];
-      if ( pioport->value )
+      if ( ioport.value )
         data |= 1 << portx;   // Set a bit
       else
         data &= ~(1 << portx); // Clear a bit
       Wire.beginTransmission(addr);
       Wire.write(data);
-      pioport->error = Wire.endTransmission() != 0;
-      if ( !pioport->error )
+      ioport.error = Wire.endTransmission() != 0;
+      if ( !ioport.error )
         gatekeeper.states[devx] = data;
     }    
 
+    notify = IO_RDY;
+    if ( ioport.error )
+      notify |= IO_ERROR;
+    if ( ioport.value )
+      notify |= IO_BIT;
+
     // Notify client about completion
-    assert(pioport->htask);
-    xTaskNotifyGive(pioport->htask);
+    if ( ioport.htask )
+      xTaskNotify(
+        ioport.htask,
+        notify,
+        eSetValueWithOverwrite);
   }
 }
 
@@ -147,7 +164,7 @@ static void pcf8574_wait_ready() {
 
 static short pcf8574_get(uint8_t port) {
   s_ioport ioport;      // Port pin (0..15)
-  s_ioport *pioport = &ioport;
+  uint32_t notify;      // Returned notification word
   BaseType_t rc;
 
   assert(port < 16);
@@ -159,13 +176,22 @@ static short pcf8574_get(uint8_t port) {
 
   rc = xQueueSendToBack(
     gatekeeper.queue,
-    &pioport,
+    &ioport,
     portMAX_DELAY);
   assert(rc == pdPASS);  
   
   // Wait to be notified:
-  ulTaskNotifyTake(pdTRUE,portMAX_DELAY);
-  return ioport.error ? -1 : ioport.value;
+  // Wait to be notified:
+  rc = xTaskNotifyWait(
+    0, // no clear on entry
+    IO_RDY|IO_ERROR|IO_BIT, // clear on exit
+    &notify,
+    portMAX_DELAY);
+  assert(rc == pdTRUE);
+
+  return (notify & IO_ERROR)
+    ? -1
+    : !!(notify & IO_BIT);
 }
 
 // Write GPIO pin for a PCF8574 port:
@@ -175,8 +201,8 @@ static short pcf8574_get(uint8_t port) {
 
 static short pcf8574_put(uint8_t port,bool value) {
   s_ioport ioport;      // Port pin (0..15)
-  s_ioport *pioport = &ioport;
   BaseType_t rc;
+  uint32_t notify;      // Returned notification word
 
   assert(port < 16);
   ioport.input = false; // Write request
@@ -188,13 +214,21 @@ static short pcf8574_put(uint8_t port,bool value) {
 
   rc = xQueueSendToBack(
     gatekeeper.queue,
-    &pioport,
+    &ioport,
     portMAX_DELAY);
   assert(rc == pdPASS);  
   
   // Wait to be notified:
-  ulTaskNotifyTake(pdTRUE,portMAX_DELAY);
-  return ioport.error ? -1 : ioport.value;
+  rc = xTaskNotifyWait(
+    0, // no clear on entry
+    IO_RDY|IO_ERROR|IO_BIT, // clear on exit
+    &notify,
+    portMAX_DELAY);
+  assert(rc == pdTRUE);
+
+  return (notify & IO_ERROR)
+    ? -1
+    : !!(notify & IO_BIT);
 }
 
 // User task: Uses gatekeeper task for
