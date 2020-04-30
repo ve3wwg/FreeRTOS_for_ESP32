@@ -182,7 +182,7 @@ static short pcf8574_get(uint8_t port) {
     portMAX_DELAY);
   assert(rc == pdPASS);  
   
-  // Wait to be notified:
+
   // Wait to be notified:
   rc = xTaskNotifyWait(
     0, // no clear on entry
@@ -244,7 +244,7 @@ static short pcf8574_put(uint8_t port,bool value) {
 // corresponding LED.
 
 static void usr_task1(void *argp) {
-  struct s_state {
+  static const struct s_state {
     uint8_t   button;
     uint8_t   led;
   } states[3] = {
